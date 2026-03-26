@@ -3,18 +3,6 @@ import type { Candidate, DashboardData, Role } from "../types";
 
 const API_BASE = "http://127.0.0.1:5000/api";
 
-function authHeaders(includeJson: boolean = false): HeadersInit {
-  const token = localStorage.getItem("sessionToken") || "";
-  return includeJson
-    ? {
-        "Content-Type": "application/json",
-        "X-Session-Token": token,
-      }
-    : {
-        "X-Session-Token": token,
-      };
-}
-
 const roleLabels: Record<Role, string> = {
   KIDS_TEACHER: "Kids Teacher",
   KIDS_ASSISTANT: "Kids Assistant",
@@ -27,10 +15,13 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`${API_BASE}/dashboard`, {
-      headers: authHeaders(),
-    })
-      .then((res) => res.json())
+    fetch(`${API_BASE}/dashboard`)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error("Failed to load dashboard");
+        }
+        return res.json();
+      })
       .then(setData)
       .catch(() => setError("Failed to load dashboard."));
   }, []);
