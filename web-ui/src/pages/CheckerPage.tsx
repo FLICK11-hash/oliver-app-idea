@@ -1,22 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Schedule, Volunteer } from "../types";
 
-const API_BASE = "http://127.0.0.1:5000/api";
+const API_BASE = "/api";
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function authHeaders(includeJson: boolean = false): HeadersInit {
-  const token = localStorage.getItem("sessionToken") || "";
-  return includeJson
-    ? {
-        "Content-Type": "application/json",
-        "X-Session-Token": token,
-      }
-    : {
-        "X-Session-Token": token,
-      };
 }
 
 export default function CheckerPage() {
@@ -26,17 +14,13 @@ export default function CheckerPage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetch(`${API_BASE}/volunteers?includeArchived=true`, {
-        headers: authHeaders(),
-    })
+    fetch(`${API_BASE}/volunteers?includeArchived=true`)
       .then((res) => res.json())
       .then(setVolunteers);
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/schedules/${selectedDate}`, {
-        headers: authHeaders(),
-    })
+    fetch(`${API_BASE}/schedules/${selectedDate}`)
       .then(async (res) => {
         const data = await res.json();
         setSchedule(data);

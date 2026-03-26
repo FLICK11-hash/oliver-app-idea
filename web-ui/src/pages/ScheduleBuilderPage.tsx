@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Candidate, Role, Schedule, ValidationResult, Volunteer } from "../types";
 
-const API_BASE = "http://127.0.0.1:5000/api";
+const API_BASE = "/api";
 
 const roleLabels: Record<Role, string> = {
   KIDS_TEACHER: "Kids Teacher",

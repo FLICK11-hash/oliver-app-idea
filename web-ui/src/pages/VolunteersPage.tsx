@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Gender, Volunteer } from "../types";
 
-const API_BASE = "http://127.0.0.1:5000/api";
+const API_BASE = "/api";
 
 const emptyForm = {
   name: "",
