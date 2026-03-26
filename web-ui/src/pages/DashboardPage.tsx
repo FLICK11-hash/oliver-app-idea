@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Candidate, DashboardData, Role } from "../types";
 
-const API_BASE = "/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 const roleLabels: Record<Role, string> = {
   KIDS_TEACHER: "Kids Teacher",
