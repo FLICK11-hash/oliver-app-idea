@@ -1,0 +1,7 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+api/db/church_scheduler.sqlite3
+.env
+.DS_Store
