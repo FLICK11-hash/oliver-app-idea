@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Role, ServeRecord, Volunteer } from "../types";
 
-const API_BASE = "/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 const roleOptions: Role[] = [
   "KIDS_TEACHER",
