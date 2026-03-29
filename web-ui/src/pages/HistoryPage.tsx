@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Role, ServeRecord, Volunteer } from "../types";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = "https://oliver-app-idea-2.onrender.com/api";
 
 const roleOptions: Role[] = [
   "KIDS_TEACHER",
