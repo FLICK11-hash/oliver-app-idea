@@ -1124,6 +1124,4 @@ init_db()
 seed_if_empty()
 
 if __name__ == "__main__":
-    init_db()
-    seed_if_empty()
     app.run(debug=True, port=5000)
