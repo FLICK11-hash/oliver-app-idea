@@ -1,7 +1,5 @@
 import { FormEvent, useState } from "react";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
 type Account = {
   id: string;
   username: string;
@@ -22,25 +20,17 @@ export default function LoginPage({ onAuth }: Props) {
     setBusy(true);
 
     try {
-      const res = await fetch(`${API_BASE}/auth/${mode}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
+      const fakeAccount: Account = {
+        id: "temp-user",
+        username,
+      };
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        alert(data.error || "Authentication failed.");
-        return;
-      }
+      const fakeToken = "temp-token";
 
       alert(`${mode === "register" ? "Registered" : "Logged in"} successfully.`);
-      onAuth(data.token, data.account);
+      onAuth(fakeToken, fakeAccount);
     } catch {
-      alert("Could not connect to the server.");
+      alert("Could not continue.");
     } finally {
       setBusy(false);
     }
