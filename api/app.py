@@ -1120,6 +1120,8 @@ def volunteer_stats(volunteer_id: str) -> Any:
         }
     )
 
+init_db()
+seed_if_empty()
 
 if __name__ == "__main__":
     init_db()
