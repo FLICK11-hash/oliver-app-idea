@@ -1,6 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Role, ServeRecord, Volunteer } from "../types";
 
+type Props = {
+  token: string;
+};
+
 const API_BASE = "/api";
 
 const roleOptions: Role[] = [
@@ -10,7 +14,7 @@ const roleOptions: Role[] = [
   "COFFEE",
 ];
 
-export default function HistoryPage() {
+export default function HistoryPage({ token }: Props) {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [records, setRecords] = useState<ServeRecord[]>([]);
   const [form, setForm] = useState({
@@ -20,11 +24,19 @@ export default function HistoryPage() {
   });
 
   function loadAll() {
-    fetch(`${API_BASE}/volunteers`)
+    fetch(`${API_BASE}/volunteers`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then(setVolunteers);
 
-    fetch(`${API_BASE}/serve-records`)
+    fetch(`${API_BASE}/serve-records`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then(setRecords);
   }
@@ -38,7 +50,10 @@ export default function HistoryPage() {
 
     fetch(`${API_BASE}/serve-records`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(form),
     }).then(async (res) => {
       const data = await res.json();
@@ -124,6 +139,9 @@ export default function HistoryPage() {
 
                   fetch(`${API_BASE}/serve-records/${record.id}`, {
                     method: "DELETE",
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                    },
                   }).then(async (res) => {
                     const data = await res.json();
                     if (!res.ok) {

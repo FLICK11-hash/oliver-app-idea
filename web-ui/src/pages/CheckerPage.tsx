@@ -1,28 +1,56 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Schedule, Volunteer } from "../types";
 
+type Props = {
+  token: string;
+};
+
 const API_BASE = "/api";
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export default function CheckerPage() {
+export default function CheckerPage({ token }: Props) {
   const [selectedDate, setSelectedDate] = useState(todayString());
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetch(`${API_BASE}/volunteers?includeArchived=true`)
-      .then((res) => res.json())
-      .then(setVolunteers);
-  }, []);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/schedules/${selectedDate}`)
+    fetch(`${API_BASE}/volunteers?includeArchived=true`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then(async (res) => {
         const data = await res.json();
+        if (!res.ok) {
+          setMessage(data.error || "Could not load volunteers.");
+          setVolunteers([]);
+          return;
+        }
+        setVolunteers(data);
+      })
+      .catch(() => {
+        setMessage("Could not load volunteers.");
+        setVolunteers([]);
+      });
+  }, [token]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/schedules/${selectedDate}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          setSchedule(null);
+          setMessage(data.error || "Could not load schedule for that date.");
+          return;
+        }
         setSchedule(data);
         setMessage("");
       })
@@ -30,7 +58,7 @@ export default function CheckerPage() {
         setSchedule(null);
         setMessage("Could not load schedule for that date.");
       });
-  }, [selectedDate]);
+  }, [selectedDate, token]);
 
   const volunteerMap = useMemo(() => {
     const map: Record<string, Volunteer> = {};

@@ -1,6 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Gender, Volunteer } from "../types";
 
+type Props = {
+  token: string;
+};
+
 const API_BASE = "/api";
 
 const emptyForm = {
@@ -16,14 +20,18 @@ const emptyForm = {
   email: "",
 };
 
-export default function VolunteersPage() {
+export default function VolunteersPage({ token }: Props) {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(true);
   const [form, setForm] = useState(emptyForm);
 
   function loadVolunteers() {
-    fetch(`${API_BASE}/volunteers?includeArchived=${showArchived}`)
+    fetch(`${API_BASE}/volunteers?includeArchived=${showArchived}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then(setVolunteers);
   }
@@ -47,7 +55,10 @@ export default function VolunteersPage() {
 
     fetch(url, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         ...form,
         kidsCoupleGroup: form.kidsCoupleGroup.trim() || null,
@@ -235,6 +246,9 @@ export default function VolunteersPage() {
 
                       fetch(`${API_BASE}/volunteers/${volunteer.id}`, {
                         method: "DELETE",
+                        headers: {
+                          Authorization: `Bearer ${token}`,
+                        },
                       }).then(async (res) => {
                         const data = await res.json();
                         if (!res.ok) {

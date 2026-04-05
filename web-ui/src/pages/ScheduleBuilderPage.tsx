@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Candidate, Role, Schedule, ValidationResult, Volunteer } from "../types";
 
+type Props = {
+  token: string;
+};
+
 const API_BASE = "/api";
 
 const roleLabels: Record<Role, string> = {
@@ -19,7 +23,7 @@ function nextSundayString() {
   return nextSunday.toISOString().slice(0, 10);
 }
 
-export default function ScheduleBuilderPage() {
+export default function ScheduleBuilderPage({ token }: Props) {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [schedule, setSchedule] = useState<Schedule>({
     date: nextSundayString(),
@@ -37,13 +41,21 @@ export default function ScheduleBuilderPage() {
   });
 
   useEffect(() => {
-    fetch(`${API_BASE}/volunteers`)
+    fetch(`${API_BASE}/volunteers`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then(setVolunteers);
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/schedules/${schedule.date}`)
+    fetch(`${API_BASE}/schedules/${schedule.date}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then((data: Schedule) => {
         setSchedule({
@@ -59,7 +71,10 @@ export default function ScheduleBuilderPage() {
   useEffect(() => {
     fetch(`${API_BASE}/validate-schedule`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(schedule),
     })
       .then((res) => res.json())
@@ -69,7 +84,11 @@ export default function ScheduleBuilderPage() {
   useEffect(() => {
     const roles: Role[] = ["KIDS_TEACHER", "KIDS_ASSISTANT", "SETUP", "COFFEE"];
     roles.forEach((role) => {
-      fetch(`${API_BASE}/suggestions/${role}?date=${schedule.date}&limit=5`)
+      fetch(`${API_BASE}/suggestions/${role}?date=${schedule.date}&limit=5`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
         .then((res) => res.json())
         .then((data) =>
           setSuggestions((prev) => ({
@@ -108,7 +127,10 @@ export default function ScheduleBuilderPage() {
   function saveSchedule() {
     fetch(`${API_BASE}/schedules/${schedule.date}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(schedule),
     }).then(async (res) => {
       const data = await res.json();

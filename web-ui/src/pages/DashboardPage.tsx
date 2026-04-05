@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Candidate, DashboardData, Role } from "../types";
 
+type Props = {
+  token: string;
+};
+
 const API_BASE = "/api";
 
 const roleLabels: Record<Role, string> = {
@@ -10,21 +14,31 @@ const roleLabels: Record<Role, string> = {
   COFFEE: "Coffee",
 };
 
-export default function DashboardPage() {
+export default function DashboardPage({ token }: Props) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`${API_BASE}/dashboard`)
+    fetch(`${API_BASE}/dashboard`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then(async (res) => {
+        const result = await res.json();
+
         if (!res.ok) {
-          throw new Error("Failed to load dashboard");
+          throw new Error(result.error || "Failed to load dashboard");
         }
-        return res.json();
+
+        return result;
       })
-      .then(setData)
-      .catch(() => setError("Failed to load dashboard."));
-  }, []);
+      .then((result) => {
+        setData(result);
+        setError("");
+      })
+      .catch((err) => setError(err.message || "Failed to load dashboard."));
+  }, [token]);
 
   const renderCandidates = (candidates: Candidate[]) => (
     <div className="candidate-list">
