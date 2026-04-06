@@ -1,5 +1,4 @@
 {
-  "rootDirectory": "web-ui",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite"
