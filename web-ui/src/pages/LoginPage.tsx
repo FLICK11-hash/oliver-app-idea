@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 
-const API_BASE = "/api";
+const API_BASE = "https://oliver-app-idea-2.onrender.com/api";
 
 type Account = {
   id: string;
