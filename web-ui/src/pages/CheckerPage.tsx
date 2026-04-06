@@ -5,7 +5,7 @@ type Props = {
   token: string;
 };
 
-const API_BASE = "/api";
+const API_BASE = "https://oliver-app-idea-2.onrender.com/api";
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
