@@ -1,14 +1,13 @@
 import os
-import psycopg
-from psycopg.rows import dict_row
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
-from werkzeug.security import generate_password_hash, check_password_hash
+
+import psycopg
+from psycopg.rows import dict_row
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app)
@@ -24,6 +23,14 @@ ALL_ROLES = {
     ROLE_SETUP,
     ROLE_COFFEE,
 }
+
+
+def get_db():
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+    return psycopg.connect(database_url, row_factory=dict_row)
+
 
 def require_user():
     auth_header = request.headers.get("Authorization", "")
@@ -43,96 +50,6 @@ def require_user():
 
     return row["user_id"]
 
-@app.route("/api/auth/register", methods=["POST"])
-def register():
-    data = request.get_json() or {}
-    username = (data.get("username") or "").strip()
-    password = data.get("password") or ""
-
-    if not username or not password:
-        return jsonify({"error": "Username and password are required."}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    existing = cur.execute(
-        "SELECT id FROM users WHERE username = %s",
-        (username,)
-    ).fetchone()
-
-    if existing:
-        conn.close()
-        return jsonify({"error": "Username already exists."}), 400
-
-    user_id = str(uuid.uuid4())
-    password_hash = generate_password_hash(password)
-    token = str(uuid.uuid4())
-
-    cur.execute(
-        "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s)",
-        (user_id, username, password_hash)
-    )
-    cur.execute(
-        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
-        (token, user_id)
-    )
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        "token": token,
-        "account": {
-            "id": user_id,
-            "username": username
-        }
-    }), 201
-
-@app.route("/api/auth/login", methods=["POST"])
-def login():
-    data = request.get_json() or {}
-    username = (data.get("username") or "").strip()
-    password = data.get("password") or ""
-
-    if not username or not password:
-        return jsonify({"error": "Username and password are required."}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    user = cur.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = %s",
-        (username,)
-    ).fetchone()
-
-    conn.close()
-
-    if not user or not check_password_hash(user["password_hash"], password):
-        return jsonify({"error": "Invalid username or password."}), 401
-
-    conn = get_db()
-    cur = conn.cursor()
-    token = str(uuid.uuid4())
-    cur.execute(
-        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
-        (token, user["id"])
-    )
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        "token": token,
-        "account": {
-            "id": user["id"],
-            "username": user["username"]
-        }
-    })
-
-def get_db():
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is not set")
-    return psycopg.connect(database_url, row_factory=dict_row)
 
 def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
@@ -180,42 +97,73 @@ def row_to_serve_record(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def row_to_member(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "gender": row["gender"],
+        "active": bool(row["active"]),
+        "memberStatus": row["member_status"],
+        "dateAdded": row["date_added"],
+    }
+
+
+def row_to_pastoral_prayer_record(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "date": row["date"],
+        "memberId": row["member_id"],
+        "gender": row["gender"],
+        "notes": row["notes"],
+    }
+
+
+def row_to_hymn(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "alternateTitle": row["alternate_title"],
+        "hymnNumber": row["hymn_number"],
+        "notes": row["notes"],
+        "active": bool(row["active"]),
+    }
+
+
+def row_to_hymn_usage_record(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "date": row["date"],
+        "hymnId": row["hymn_id"],
+        "serviceType": row["service_type"],
+        "notes": row["notes"],
+    }
+
+
 def init_db() -> None:
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
-    """
-    CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL
-      )
-      """
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL
+        )
+        """
     )
 
     cur.execute(
-    """
-    CREATE TABLE IF NOT EXISTS sessions (
-        token TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-      )
-      """
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+        """
     )
 
-    cur.execute(
-    """
-    CREATE TABLE IF NOT EXISTS sessions (
-        token TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-      )
-      """
-    )
-    
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS members (
@@ -278,16 +226,6 @@ def init_db() -> None:
 
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL
-        )
-        """
-    )
-
-    cur.execute(
-        """
         CREATE TABLE IF NOT EXISTS volunteers (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -307,23 +245,6 @@ def init_db() -> None:
         """
     )
 
-    # try:
-    #     cur.execute("ALTER TABLE volunteers ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-    # except Exception:
-    #     pass
-    # try:
-    #     cur.execute("ALTER TABLE volunteers ADD COLUMN phone TEXT")
-    # except Exception:
-    #     pass
-    # try:
-    #     cur.execute("ALTER TABLE volunteers ADD COLUMN email TEXT")
-    # except Exception:
-    #     pass
-    # try:
-    #     cur.execute("ALTER TABLE volunteers ADD COLUMN user_id TEXT")
-    # except Exception:
-    #     pass
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS serve_records (
@@ -337,11 +258,6 @@ def init_db() -> None:
         )
         """
     )
-
-    # try:
-    #     cur.execute("ALTER TABLE serve_records ADD COLUMN user_id TEXT")
-    # except Exception:
-    #     pass
 
     cur.execute(
         """
@@ -359,11 +275,6 @@ def init_db() -> None:
         """
     )
 
-    # try:
-    #     cur.execute("ALTER TABLE sunday_schedules ADD COLUMN user_id TEXT")
-    # except Exception:
-    #     pass
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS sunday_schedule_assignments (
@@ -380,217 +291,93 @@ def init_db() -> None:
     conn.commit()
     conn.close()
 
-# def seed_if_empty() -> None:
-#     conn = get_db()
-#     cur = conn.cursor()
 
-#     existing = cur.execute("SELECT COUNT(*) AS count FROM volunteers").fetchone()["count"]
-#     if existing > 0:
-#         conn.close()
-#         return
+@app.route("/api/auth/register", methods=["POST"])
+def register():
+    data = request.get_json() or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
 
-#     volunteers = [
-#         {
-#             "name": "Daniel",
-#             "gender": "Male",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 1,
-#             "can_assist_kids": 0,
-#             "can_setup": 1,
-#             "can_coffee": 1,
-#             "kids_couple_group": None,
-#         },
-#         {
-#             "name": "Mariam",
-#             "gender": "Female",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 1,
-#             "can_assist_kids": 1,
-#             "can_setup": 0,
-#             "can_coffee": 1,
-#             "kids_couple_group": "couple-a",
-#         },
-#         {
-#             "name": "John",
-#             "gender": "Male",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 0,
-#             "can_assist_kids": 1,
-#             "can_setup": 1,
-#             "can_coffee": 1,
-#             "kids_couple_group": "couple-a",
-#         },
-#         {
-#             "name": "Sarah",
-#             "gender": "Female",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 0,
-#             "can_assist_kids": 1,
-#             "can_setup": 0,
-#             "can_coffee": 1,
-#             "kids_couple_group": None,
-#         },
-#         {
-#             "name": "Michael",
-#             "gender": "Male",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 0,
-#             "can_assist_kids": 1,
-#             "can_setup": 1,
-#             "can_coffee": 0,
-#             "kids_couple_group": None,
-#         },
-#         {
-#             "name": "Rebecca",
-#             "gender": "Female",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 0,
-#             "can_assist_kids": 1,
-#             "can_setup": 0,
-#             "can_coffee": 1,
-#             "kids_couple_group": None,
-#         },
-#         {
-#             "name": "Peter",
-#             "gender": "Male",
-#             "active": 1,
-#             "archived": 0,
-#             "phone": None,
-#             "email": None,
-#             "can_teach_kids": 0,
-#             "can_assist_kids": 0,
-#             "can_setup": 1,
-#             "can_coffee": 0,
-#             "kids_couple_group": None,
-#         },
-#     ]
+    if not username or not password:
+        return jsonify({"error": "Username and password are required."}), 400
 
-#     volunteer_ids: List[str] = []
-#     for v in volunteers:
-#         volunteer_id = str(uuid.uuid4())
-#         volunteer_ids.append(volunteer_id)
-#         cur.execute(
-#             """
-#             INSERT INTO volunteers (
-#                 id, name, gender, active, archived, phone, email,
-#                 can_teach_kids, can_assist_kids, can_setup, can_coffee, kids_couple_group
-#             )
-#             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-#             """,
-#             (
-#                 volunteer_id,
-#                 v["name"],
-#                 v["gender"],
-#                 v["active"],
-#                 v["archived"],
-#                 v["phone"],
-#                 v["email"],
-#                 v["can_teach_kids"],
-#                 v["can_assist_kids"],
-#                 v["can_setup"],
-#                 v["can_coffee"],
-#                 v["kids_couple_group"],
-#             ),
-#         )
+    conn = get_db()
+    cur = conn.cursor()
 
-#     today = date.today()
-#     recent_sundays = [
-#         today - timedelta(days=today.weekday() + 1 + 7),
-#         today - timedelta(days=today.weekday() + 1 + 14),
-#         today - timedelta(days=today.weekday() + 1 + 21),
-#     ]
+    existing = cur.execute(
+        "SELECT id FROM users WHERE username = %s",
+        (username,),
+    ).fetchone()
 
-#     sample_records = [
-#         (recent_sundays[0], volunteer_ids[0], ROLE_KIDS_TEACHER),
-#         (recent_sundays[0], volunteer_ids[3], ROLE_KIDS_ASSISTANT),
-#         (recent_sundays[0], volunteer_ids[4], ROLE_KIDS_ASSISTANT),
-#         (recent_sundays[0], volunteer_ids[2], ROLE_SETUP),
-#         (recent_sundays[0], volunteer_ids[6], ROLE_SETUP),
-#         (recent_sundays[0], volunteer_ids[1], ROLE_COFFEE),
-#         (recent_sundays[1], volunteer_ids[1], ROLE_KIDS_TEACHER),
-#         (recent_sundays[1], volunteer_ids[3], ROLE_KIDS_ASSISTANT),
-#         (recent_sundays[1], volunteer_ids[2], ROLE_KIDS_ASSISTANT),
-#         (recent_sundays[1], volunteer_ids[4], ROLE_SETUP),
-#         (recent_sundays[1], volunteer_ids[6], ROLE_SETUP),
-#         (recent_sundays[1], volunteer_ids[5], ROLE_COFFEE),
-#         (recent_sundays[2], volunteer_ids[0], ROLE_KIDS_TEACHER),
-#         (recent_sundays[2], volunteer_ids[5], ROLE_KIDS_ASSISTANT),
-#         (recent_sundays[2], volunteer_ids[2], ROLE_KIDS_ASSISTANT),
-#         (recent_sundays[2], volunteer_ids[4], ROLE_SETUP),
-#         (recent_sundays[2], volunteer_ids[6], ROLE_SETUP),
-#         (recent_sundays[2], volunteer_ids[3], ROLE_COFFEE),
-#     ]
+    if existing:
+        conn.close()
+        return jsonify({"error": "Username already exists."}), 400
 
-#     for record_date, volunteer_id, role in sample_records:
-#         cur.execute(
-#             """
-#             INSERT INTO serve_records (id, date, volunteer_id, role)
-#             VALUES (%s, %s, %s, %s)
-#             """,
-#             (str(uuid.uuid4()), record_date.isoformat(), volunteer_id, role),
-#         )
+    user_id = str(uuid.uuid4())
+    password_hash = generate_password_hash(password)
+    token = str(uuid.uuid4())
 
-#     conn.commit()
-#     conn.close()
+    cur.execute(
+        "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s)",
+        (user_id, username, password_hash),
+    )
+    cur.execute(
+        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
+        (token, user_id),
+    )
 
-def row_to_member(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "id": row["id"],
-        "name": row["name"],
-        "gender": row["gender"],
-        "active": bool(row["active"]),
-        "memberStatus": row["member_status"],
-        "dateAdded": row["date_added"],
-    }
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "token": token,
+        "account": {
+            "id": user_id,
+            "username": username,
+        }
+    }), 201
 
 
-def row_to_pastoral_prayer_record(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "id": row["id"],
-        "date": row["date"],
-        "memberId": row["member_id"],
-        "gender": row["gender"],
-        "notes": row["notes"],
-    }
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    data = request.get_json() or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
 
+    if not username or not password:
+        return jsonify({"error": "Username and password are required."}), 400
 
-def row_to_hymn(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "id": row["id"],
-        "title": row["title"],
-        "alternateTitle": row["alternate_title"],
-        "hymnNumber": row["hymn_number"],
-        "notes": row["notes"],
-        "active": bool(row["active"]),
-    }
+    conn = get_db()
+    cur = conn.cursor()
 
+    user = cur.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = %s",
+        (username,),
+    ).fetchone()
 
-def row_to_hymn_usage_record(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "id": row["id"],
-        "date": row["date"],
-        "hymnId": row["hymn_id"],
-        "serviceType": row["service_type"],
-        "notes": row["notes"],
-    }
+    conn.close()
+
+    if not user or not check_password_hash(user["password_hash"], password):
+        return jsonify({"error": "Invalid username or password."}), 401
+
+    conn = get_db()
+    cur = conn.cursor()
+    token = str(uuid.uuid4())
+    cur.execute(
+        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
+        (token, user["id"]),
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "token": token,
+        "account": {
+            "id": user["id"],
+            "username": user["username"],
+        }
+    })
+
 
 def get_all_members(user_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
     conn = get_db()
@@ -606,6 +393,7 @@ def get_all_members(user_id: str, active_only: bool = False) -> List[Dict[str, A
         ).fetchall()
     conn.close()
     return [row_to_member(row) for row in rows]
+
 
 def get_prayer_records(user_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
@@ -652,6 +440,7 @@ def weeks_since_last_prayed_for(user_id: str, member_id: str, reference_date: da
     if delta_days < 0:
         return 0
     return delta_days // 7
+
 
 def get_top_prayer_candidates(user_id: str, gender: str, reference_date: date, n: int = 5) -> List[Dict[str, Any]]:
     members = [m for m in get_all_members(user_id, active_only=True) if m["gender"] == gender]
@@ -700,6 +489,7 @@ def get_top_prayer_candidates(user_id: str, gender: str, reference_date: date, n
     results.sort(key=lambda x: (-x["priority"], x["member"]["name"]))
     return results[:n]
 
+
 def get_all_volunteers(user_id: str, include_archived: bool = True) -> List[Dict[str, Any]]:
     conn = get_db()
     if include_archived:
@@ -715,9 +505,11 @@ def get_all_volunteers(user_id: str, include_archived: bool = True) -> List[Dict
     conn.close()
     return [row_to_volunteer(row) for row in rows]
 
+
 def get_volunteer_map(user_id: str) -> Dict[str, Dict[str, Any]]:
     volunteers = get_all_volunteers(user_id, include_archived=True)
     return {v["id"]: v for v in volunteers}
+
 
 def get_serve_records(user_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
@@ -727,6 +519,7 @@ def get_serve_records(user_id: str) -> List[Dict[str, Any]]:
     ).fetchall()
     conn.close()
     return [row_to_serve_record(row) for row in rows]
+
 
 def get_records_for_volunteer(user_id: str, volunteer_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
@@ -741,6 +534,7 @@ def get_records_for_volunteer(user_id: str, volunteer_id: str) -> List[Dict[str,
     conn.close()
     return [row_to_serve_record(row) for row in rows]
 
+
 def total_serves(user_id: str, volunteer_id: str) -> int:
     conn = get_db()
     row = conn.execute(
@@ -749,6 +543,7 @@ def total_serves(user_id: str, volunteer_id: str) -> int:
     ).fetchone()
     conn.close()
     return int(row["count"])
+
 
 def serves_this_month(user_id: str, volunteer_id: str, reference_date: date) -> int:
     conn = get_db()
@@ -764,6 +559,7 @@ def serves_this_month(user_id: str, volunteer_id: str, reference_date: date) -> 
         if same_month(served_date, reference_date):
             count += 1
     return count
+
 
 def last_served_date(user_id: str, volunteer_id: str) -> Optional[date]:
     conn = get_db()
@@ -782,6 +578,7 @@ def last_served_date(user_id: str, volunteer_id: str) -> Optional[date]:
         return None
     return parse_date(row["date"])
 
+
 def sundays_since_last_served(user_id: str, volunteer_id: str, reference_date: date) -> int:
     last_date = last_served_date(user_id, volunteer_id)
     if last_date is None:
@@ -791,6 +588,7 @@ def sundays_since_last_served(user_id: str, volunteer_id: str, reference_date: d
     if delta_days < 0:
         return 0
     return delta_days // 7
+
 
 def served_last_sunday(user_id: str, volunteer_id: str, reference_date: date) -> bool:
     target = previous_sunday(reference_date).isoformat()
@@ -805,6 +603,7 @@ def served_last_sunday(user_id: str, volunteer_id: str, reference_date: date) ->
     ).fetchone()
     conn.close()
     return row is not None
+
 
 def is_eligible_for_role(volunteer: Dict[str, Any], role: str) -> bool:
     if not volunteer["active"] or volunteer["archived"]:
@@ -821,9 +620,11 @@ def is_eligible_for_role(volunteer: Dict[str, Any], role: str) -> bool:
 
     return False
 
+
 def eligible_volunteers_for_role(user_id: str, role: str) -> List[Dict[str, Any]]:
     volunteers = get_all_volunteers(user_id, include_archived=False)
     return [v for v in volunteers if is_eligible_for_role(v, role)]
+
 
 def compute_priority_scores(user_id: str, role: str, reference_date: date) -> List[Dict[str, Any]]:
     volunteers = eligible_volunteers_for_role(user_id, role)
@@ -899,8 +700,10 @@ def compute_priority_scores(user_id: str, role: str, reference_date: date) -> Li
     results.sort(key=lambda item: (-item["priority"], item["volunteer"]["name"]))
     return results
 
+
 def get_top_candidates(user_id: str, role: str, reference_date: date, n: int = 5) -> List[Dict[str, Any]]:
     return compute_priority_scores(user_id, role, reference_date)[:n]
+
 
 def load_schedule_by_date(user_id: str, schedule_date: str) -> Optional[Dict[str, Any]]:
     conn = get_db()
@@ -940,6 +743,7 @@ def load_schedule_by_date(user_id: str, schedule_date: str) -> Optional[Dict[str
         "setup": setup,
         "coffee": schedule_row["coffee"],
     }
+
 
 def validate_schedule(user_id: str, schedule: Dict[str, Any]) -> Dict[str, List[str]]:
     errors: List[str] = []
@@ -1044,6 +848,7 @@ def validate_schedule(user_id: str, schedule: Dict[str, Any]) -> Dict[str, List[
         "warnings": sorted(list(set(warnings))),
     }
 
+
 def dashboard_stats(user_id: str, reference_date: date) -> Dict[str, Any]:
     volunteers = get_all_volunteers(user_id, include_archived=True)
     active_count = len([v for v in volunteers if v["active"] and not v["archived"]])
@@ -1060,6 +865,7 @@ def dashboard_stats(user_id: str, reference_date: date) -> Dict[str, Any]:
             ROLE_COFFEE: get_top_candidates(user_id, ROLE_COFFEE, reference_date, 5),
         },
     }
+
 
 @app.route("/api/members", methods=["GET"])
 def list_members() -> Any:
@@ -1102,6 +908,7 @@ def create_member() -> Any:
     conn.close()
 
     return jsonify({"ok": True, "id": member_id}), 201
+
 
 @app.route("/api/pastoral-prayer-records", methods=["GET"])
 def list_pastoral_prayer_records() -> Any:
@@ -1168,6 +975,7 @@ def create_pastoral_prayer_records() -> Any:
 
     return jsonify({"ok": True})
 
+
 @app.route("/api/pastoral-prayer-suggestions", methods=["GET"])
 def pastoral_prayer_suggestions() -> Any:
     user_id = require_user()
@@ -1182,9 +990,11 @@ def pastoral_prayer_suggestions() -> Any:
         "female": get_top_prayer_candidates(user_id, "Female", reference_date, 5),
     })
 
+
 @app.route("/api/health", methods=["GET"])
 def health() -> Any:
     return jsonify({"ok": True})
+
 
 @app.route("/api/dashboard", methods=["GET"])
 def get_dashboard() -> Any:
@@ -1205,6 +1015,7 @@ def list_volunteers() -> Any:
 
     include_archived = request.args.get("includeArchived", "true").lower() == "true"
     return jsonify(get_all_volunteers(user_id, include_archived=include_archived))
+
 
 @app.route("/api/volunteers", methods=["POST"])
 def create_volunteer():
@@ -1262,8 +1073,13 @@ def create_volunteer():
 
     return jsonify({"ok": True, "id": volunteer_id}), 201
 
+
 @app.route("/api/volunteers/<volunteer_id>", methods=["PUT"])
 def update_volunteer(volunteer_id: str) -> Any:
+    user_id = require_user()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json(force=True)
     name = (data.get("name") or "").strip()
     gender = data.get("gender")
@@ -1276,8 +1092,8 @@ def update_volunteer(volunteer_id: str) -> Any:
 
     conn = get_db()
     existing = conn.execute(
-        "SELECT id FROM volunteers WHERE id = %s",
-        (volunteer_id,),
+        "SELECT id FROM volunteers WHERE id = %s AND user_id = %s",
+        (volunteer_id, user_id),
     ).fetchone()
 
     if existing is None:
@@ -1294,7 +1110,7 @@ def update_volunteer(volunteer_id: str) -> Any:
             phone = %s, email = %s,
             can_teach_kids = %s, can_assist_kids = %s, can_setup = %s, can_coffee = %s,
             kids_couple_group = %s
-        WHERE id = %s
+        WHERE id = %s AND user_id = %s
         """,
         (
             name,
@@ -1309,6 +1125,7 @@ def update_volunteer(volunteer_id: str) -> Any:
             1 if bool_from_request(data, "canCoffee") else 0,
             kids_couple_group if kids_couple_group else None,
             volunteer_id,
+            user_id,
         ),
     )
     conn.commit()
@@ -1320,11 +1137,15 @@ def update_volunteer(volunteer_id: str) -> Any:
 
 @app.route("/api/volunteers/<volunteer_id>", methods=["DELETE"])
 def delete_volunteer(volunteer_id: str) -> Any:
+    user_id = require_user()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM volunteers WHERE id = %s",
-        (volunteer_id,),
+        "SELECT id FROM volunteers WHERE id = %s AND user_id = %s",
+        (volunteer_id, user_id),
     ).fetchone()
 
     if existing is None:
@@ -1335,9 +1156,9 @@ def delete_volunteer(volunteer_id: str) -> Any:
         """
         UPDATE volunteers
         SET active = 0, archived = 1
-        WHERE id = %s
+        WHERE id = %s AND user_id = %s
         """,
-        (volunteer_id,),
+        (volunteer_id, user_id),
     )
     conn.commit()
     conn.close()
@@ -1423,22 +1244,30 @@ def create_serve_record() -> Any:
 
 @app.route("/api/serve-records/<record_id>", methods=["DELETE"])
 def delete_serve_record(record_id: str) -> Any:
+    user_id = require_user()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM serve_records WHERE id = %s",
-        (record_id,),
+        "SELECT id FROM serve_records WHERE id = %s AND user_id = %s",
+        (record_id, user_id),
     ).fetchone()
 
     if existing is None:
         conn.close()
         return jsonify({"error": "Serve record not found."}), 404
 
-    conn.execute("DELETE FROM serve_records WHERE id = %s", (record_id,))
+    conn.execute(
+        "DELETE FROM serve_records WHERE id = %s AND user_id = %s",
+        (record_id, user_id),
+    )
     conn.commit()
     conn.close()
 
     return jsonify({"ok": True})
+
 
 @app.route("/api/suggestions/<role>", methods=["GET"])
 def suggestions(role: str) -> Any:
@@ -1454,6 +1283,7 @@ def suggestions(role: str) -> Any:
     limit = int(request.args.get("limit", "5"))
 
     return jsonify(get_top_candidates(user_id, role, reference_date, limit))
+
 
 @app.route("/api/schedules/<schedule_date>", methods=["GET"])
 def get_schedule(schedule_date: str) -> Any:
@@ -1474,6 +1304,7 @@ def get_schedule(schedule_date: str) -> Any:
             }
         )
     return jsonify(schedule)
+
 
 @app.route("/api/schedules/<schedule_date>", methods=["PUT"])
 def save_schedule(schedule_date: str) -> Any:
@@ -1599,6 +1430,7 @@ def save_schedule(schedule_date: str) -> Any:
         }
     )
 
+
 @app.route("/api/validate-schedule", methods=["POST"])
 def validate_schedule_route() -> Any:
     user_id = require_user()
@@ -1628,6 +1460,7 @@ def validate_schedule_route() -> Any:
         )
 
     return jsonify(validate_schedule(user_id, schedule))
+
 
 @app.route("/api/stats/volunteer/<volunteer_id>", methods=["GET"])
 def volunteer_stats(volunteer_id: str) -> Any:
@@ -1660,6 +1493,7 @@ def volunteer_stats(volunteer_id: str) -> Any:
             "history": get_records_for_volunteer(user_id, volunteer_id),
         }
     )
+
 
 def get_all_hymns(user_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
     conn = get_db()
@@ -1722,6 +1556,7 @@ def weeks_since_last_sung(user_id: str, hymn_id: str, reference_date: date) -> O
     if delta_days < 0:
         return 0
     return delta_days // 7
+
 
 @app.route("/api/hymns", methods=["GET"])
 def list_hymns() -> Any:
@@ -1811,6 +1646,7 @@ def create_hymn_usage_record() -> Any:
 
     return jsonify({"ok": True, "id": record_id}), 201
 
+
 @app.route("/api/pastoral-prayer-records/<record_id>", methods=["DELETE"])
 def delete_pastoral_prayer_record(record_id: str) -> Any:
     user_id = require_user()
@@ -1836,6 +1672,7 @@ def delete_pastoral_prayer_record(record_id: str) -> Any:
     conn.close()
 
     return jsonify({"ok": True})
+
 
 @app.route("/api/hymns/<hymn_id>", methods=["DELETE"])
 def delete_hymn(hymn_id: str) -> Any:
@@ -1867,6 +1704,7 @@ def delete_hymn(hymn_id: str) -> Any:
 
     return jsonify({"ok": True})
 
+
 @app.route("/api/hymn-usage-records/<record_id>", methods=["DELETE"])
 def delete_hymn_usage_record(record_id: str) -> Any:
     user_id = require_user()
@@ -1892,6 +1730,7 @@ def delete_hymn_usage_record(record_id: str) -> Any:
     conn.close()
 
     return jsonify({"ok": True})
+
 
 @app.route("/api/members/<member_id>", methods=["DELETE"])
 def delete_member(member_id: str) -> Any:
@@ -1923,6 +1762,7 @@ def delete_member(member_id: str) -> Any:
     conn.close()
 
     return jsonify({"ok": True})
+
 
 init_db()
 
