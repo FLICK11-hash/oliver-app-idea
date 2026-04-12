@@ -67,21 +67,19 @@ def register():
 
     user_id = str(uuid.uuid4())
     password_hash = generate_password_hash(password)
+    token = str(uuid.uuid4())
 
     cur.execute(
         "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s)",
         (user_id, username, password_hash)
     )
-    conn.commit()
-    conn.close()
-
-    token = str(uuid.uuid4())
-    cur = conn.cursor()
     cur.execute(
         "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
         (token, user_id)
     )
+
     conn.commit()
+    conn.close()
 
     return jsonify({
         "token": token,
@@ -157,7 +155,7 @@ def bool_from_request(data: Dict[str, Any], key: str, default: bool = False) -> 
     return bool(value)
 
 
-def row_to_volunteer(row: sqlite3.Row) -> Dict[str, Any]:
+def row_to_volunteer(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "name": row["name"],
@@ -174,7 +172,7 @@ def row_to_volunteer(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def row_to_serve_record(row: sqlite3.Row) -> Dict[str, Any]:
+def row_to_serve_record(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "date": row["date"],
@@ -291,19 +289,19 @@ def init_db() -> None:
 
     try:
         cur.execute("ALTER TABLE volunteers ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     try:
         cur.execute("ALTER TABLE volunteers ADD COLUMN phone TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     try:
         cur.execute("ALTER TABLE volunteers ADD COLUMN email TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     try:
         cur.execute("ALTER TABLE volunteers ADD COLUMN user_id TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     cur.execute(
@@ -322,7 +320,7 @@ def init_db() -> None:
 
     try:
         cur.execute("ALTER TABLE serve_records ADD COLUMN user_id TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     cur.execute(
@@ -343,7 +341,7 @@ def init_db() -> None:
 
     try:
         cur.execute("ALTER TABLE sunday_schedules ADD COLUMN user_id TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     cur.execute(
@@ -362,178 +360,178 @@ def init_db() -> None:
     conn.commit()
     conn.close()
 
-def seed_if_empty() -> None:
-    conn = get_db()
-    cur = conn.cursor()
+# def seed_if_empty() -> None:
+#     conn = get_db()
+#     cur = conn.cursor()
 
-    existing = cur.execute("SELECT COUNT(*) AS count FROM volunteers").fetchone()["count"]
-    if existing > 0:
-        conn.close()
-        return
+#     existing = cur.execute("SELECT COUNT(*) AS count FROM volunteers").fetchone()["count"]
+#     if existing > 0:
+#         conn.close()
+#         return
 
-    volunteers = [
-        {
-            "name": "Daniel",
-            "gender": "Male",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 1,
-            "can_assist_kids": 0,
-            "can_setup": 1,
-            "can_coffee": 1,
-            "kids_couple_group": None,
-        },
-        {
-            "name": "Mariam",
-            "gender": "Female",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 1,
-            "can_assist_kids": 1,
-            "can_setup": 0,
-            "can_coffee": 1,
-            "kids_couple_group": "couple-a",
-        },
-        {
-            "name": "John",
-            "gender": "Male",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 0,
-            "can_assist_kids": 1,
-            "can_setup": 1,
-            "can_coffee": 1,
-            "kids_couple_group": "couple-a",
-        },
-        {
-            "name": "Sarah",
-            "gender": "Female",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 0,
-            "can_assist_kids": 1,
-            "can_setup": 0,
-            "can_coffee": 1,
-            "kids_couple_group": None,
-        },
-        {
-            "name": "Michael",
-            "gender": "Male",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 0,
-            "can_assist_kids": 1,
-            "can_setup": 1,
-            "can_coffee": 0,
-            "kids_couple_group": None,
-        },
-        {
-            "name": "Rebecca",
-            "gender": "Female",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 0,
-            "can_assist_kids": 1,
-            "can_setup": 0,
-            "can_coffee": 1,
-            "kids_couple_group": None,
-        },
-        {
-            "name": "Peter",
-            "gender": "Male",
-            "active": 1,
-            "archived": 0,
-            "phone": None,
-            "email": None,
-            "can_teach_kids": 0,
-            "can_assist_kids": 0,
-            "can_setup": 1,
-            "can_coffee": 0,
-            "kids_couple_group": None,
-        },
-    ]
+#     volunteers = [
+#         {
+#             "name": "Daniel",
+#             "gender": "Male",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 1,
+#             "can_assist_kids": 0,
+#             "can_setup": 1,
+#             "can_coffee": 1,
+#             "kids_couple_group": None,
+#         },
+#         {
+#             "name": "Mariam",
+#             "gender": "Female",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 1,
+#             "can_assist_kids": 1,
+#             "can_setup": 0,
+#             "can_coffee": 1,
+#             "kids_couple_group": "couple-a",
+#         },
+#         {
+#             "name": "John",
+#             "gender": "Male",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 0,
+#             "can_assist_kids": 1,
+#             "can_setup": 1,
+#             "can_coffee": 1,
+#             "kids_couple_group": "couple-a",
+#         },
+#         {
+#             "name": "Sarah",
+#             "gender": "Female",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 0,
+#             "can_assist_kids": 1,
+#             "can_setup": 0,
+#             "can_coffee": 1,
+#             "kids_couple_group": None,
+#         },
+#         {
+#             "name": "Michael",
+#             "gender": "Male",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 0,
+#             "can_assist_kids": 1,
+#             "can_setup": 1,
+#             "can_coffee": 0,
+#             "kids_couple_group": None,
+#         },
+#         {
+#             "name": "Rebecca",
+#             "gender": "Female",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 0,
+#             "can_assist_kids": 1,
+#             "can_setup": 0,
+#             "can_coffee": 1,
+#             "kids_couple_group": None,
+#         },
+#         {
+#             "name": "Peter",
+#             "gender": "Male",
+#             "active": 1,
+#             "archived": 0,
+#             "phone": None,
+#             "email": None,
+#             "can_teach_kids": 0,
+#             "can_assist_kids": 0,
+#             "can_setup": 1,
+#             "can_coffee": 0,
+#             "kids_couple_group": None,
+#         },
+#     ]
 
-    volunteer_ids: List[str] = []
-    for v in volunteers:
-        volunteer_id = str(uuid.uuid4())
-        volunteer_ids.append(volunteer_id)
-        cur.execute(
-            """
-            INSERT INTO volunteers (
-                id, name, gender, active, archived, phone, email,
-                can_teach_kids, can_assist_kids, can_setup, can_coffee, kids_couple_group
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                volunteer_id,
-                v["name"],
-                v["gender"],
-                v["active"],
-                v["archived"],
-                v["phone"],
-                v["email"],
-                v["can_teach_kids"],
-                v["can_assist_kids"],
-                v["can_setup"],
-                v["can_coffee"],
-                v["kids_couple_group"],
-            ),
-        )
+#     volunteer_ids: List[str] = []
+#     for v in volunteers:
+#         volunteer_id = str(uuid.uuid4())
+#         volunteer_ids.append(volunteer_id)
+#         cur.execute(
+#             """
+#             INSERT INTO volunteers (
+#                 id, name, gender, active, archived, phone, email,
+#                 can_teach_kids, can_assist_kids, can_setup, can_coffee, kids_couple_group
+#             )
+#             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+#             """,
+#             (
+#                 volunteer_id,
+#                 v["name"],
+#                 v["gender"],
+#                 v["active"],
+#                 v["archived"],
+#                 v["phone"],
+#                 v["email"],
+#                 v["can_teach_kids"],
+#                 v["can_assist_kids"],
+#                 v["can_setup"],
+#                 v["can_coffee"],
+#                 v["kids_couple_group"],
+#             ),
+#         )
 
-    today = date.today()
-    recent_sundays = [
-        today - timedelta(days=today.weekday() + 1 + 7),
-        today - timedelta(days=today.weekday() + 1 + 14),
-        today - timedelta(days=today.weekday() + 1 + 21),
-    ]
+#     today = date.today()
+#     recent_sundays = [
+#         today - timedelta(days=today.weekday() + 1 + 7),
+#         today - timedelta(days=today.weekday() + 1 + 14),
+#         today - timedelta(days=today.weekday() + 1 + 21),
+#     ]
 
-    sample_records = [
-        (recent_sundays[0], volunteer_ids[0], ROLE_KIDS_TEACHER),
-        (recent_sundays[0], volunteer_ids[3], ROLE_KIDS_ASSISTANT),
-        (recent_sundays[0], volunteer_ids[4], ROLE_KIDS_ASSISTANT),
-        (recent_sundays[0], volunteer_ids[2], ROLE_SETUP),
-        (recent_sundays[0], volunteer_ids[6], ROLE_SETUP),
-        (recent_sundays[0], volunteer_ids[1], ROLE_COFFEE),
-        (recent_sundays[1], volunteer_ids[1], ROLE_KIDS_TEACHER),
-        (recent_sundays[1], volunteer_ids[3], ROLE_KIDS_ASSISTANT),
-        (recent_sundays[1], volunteer_ids[2], ROLE_KIDS_ASSISTANT),
-        (recent_sundays[1], volunteer_ids[4], ROLE_SETUP),
-        (recent_sundays[1], volunteer_ids[6], ROLE_SETUP),
-        (recent_sundays[1], volunteer_ids[5], ROLE_COFFEE),
-        (recent_sundays[2], volunteer_ids[0], ROLE_KIDS_TEACHER),
-        (recent_sundays[2], volunteer_ids[5], ROLE_KIDS_ASSISTANT),
-        (recent_sundays[2], volunteer_ids[2], ROLE_KIDS_ASSISTANT),
-        (recent_sundays[2], volunteer_ids[4], ROLE_SETUP),
-        (recent_sundays[2], volunteer_ids[6], ROLE_SETUP),
-        (recent_sundays[2], volunteer_ids[3], ROLE_COFFEE),
-    ]
+#     sample_records = [
+#         (recent_sundays[0], volunteer_ids[0], ROLE_KIDS_TEACHER),
+#         (recent_sundays[0], volunteer_ids[3], ROLE_KIDS_ASSISTANT),
+#         (recent_sundays[0], volunteer_ids[4], ROLE_KIDS_ASSISTANT),
+#         (recent_sundays[0], volunteer_ids[2], ROLE_SETUP),
+#         (recent_sundays[0], volunteer_ids[6], ROLE_SETUP),
+#         (recent_sundays[0], volunteer_ids[1], ROLE_COFFEE),
+#         (recent_sundays[1], volunteer_ids[1], ROLE_KIDS_TEACHER),
+#         (recent_sundays[1], volunteer_ids[3], ROLE_KIDS_ASSISTANT),
+#         (recent_sundays[1], volunteer_ids[2], ROLE_KIDS_ASSISTANT),
+#         (recent_sundays[1], volunteer_ids[4], ROLE_SETUP),
+#         (recent_sundays[1], volunteer_ids[6], ROLE_SETUP),
+#         (recent_sundays[1], volunteer_ids[5], ROLE_COFFEE),
+#         (recent_sundays[2], volunteer_ids[0], ROLE_KIDS_TEACHER),
+#         (recent_sundays[2], volunteer_ids[5], ROLE_KIDS_ASSISTANT),
+#         (recent_sundays[2], volunteer_ids[2], ROLE_KIDS_ASSISTANT),
+#         (recent_sundays[2], volunteer_ids[4], ROLE_SETUP),
+#         (recent_sundays[2], volunteer_ids[6], ROLE_SETUP),
+#         (recent_sundays[2], volunteer_ids[3], ROLE_COFFEE),
+#     ]
 
-    for record_date, volunteer_id, role in sample_records:
-        cur.execute(
-            """
-            INSERT INTO serve_records (id, date, volunteer_id, role)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (str(uuid.uuid4()), record_date.isoformat(), volunteer_id, role),
-        )
+#     for record_date, volunteer_id, role in sample_records:
+#         cur.execute(
+#             """
+#             INSERT INTO serve_records (id, date, volunteer_id, role)
+#             VALUES (%s, %s, %s, %s)
+#             """,
+#             (str(uuid.uuid4()), record_date.isoformat(), volunteer_id, role),
+#         )
 
-    conn.commit()
-    conn.close()
+#     conn.commit()
+#     conn.close()
 
-def row_to_member(row: sqlite3.Row) -> Dict[str, Any]:
+def row_to_member(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "name": row["name"],
@@ -544,7 +542,7 @@ def row_to_member(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def row_to_pastoral_prayer_record(row: sqlite3.Row) -> Dict[str, Any]:
+def row_to_pastoral_prayer_record(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "date": row["date"],
@@ -554,7 +552,7 @@ def row_to_pastoral_prayer_record(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def row_to_hymn(row: sqlite3.Row) -> Dict[str, Any]:
+def row_to_hymn(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "title": row["title"],
@@ -565,7 +563,7 @@ def row_to_hymn(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def row_to_hymn_usage_record(row: sqlite3.Row) -> Dict[str, Any]:
+def row_to_hymn_usage_record(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "date": row["date"],
