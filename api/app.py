@@ -1,5 +1,6 @@
 import os
-import sqlite3
+import psycopg
+from psycopg.rows import dict_row
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -9,13 +10,9 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_DIR = os.path.join(BASE_DIR, "db")
-DB_PATH = os.path.join(DB_DIR, "church_scheduler.sqlite3")
 
 app = Flask(__name__)
 CORS(app)
-
-TOKENS = {}
 
 ROLE_KIDS_TEACHER = "KIDS_TEACHER"
 ROLE_KIDS_ASSISTANT = "KIDS_ASSISTANT"
@@ -35,7 +32,17 @@ def require_user():
         return None
 
     token = auth_header.replace("Bearer ", "", 1).strip()
-    return TOKENS.get(token)
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM sessions WHERE token = %s", (token,))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return row["user_id"]
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
@@ -50,7 +57,7 @@ def register():
     cur = conn.cursor()
 
     existing = cur.execute(
-        "SELECT id FROM users WHERE username = ?",
+        "SELECT id FROM users WHERE username = %s",
         (username,)
     ).fetchone()
 
@@ -62,14 +69,19 @@ def register():
     password_hash = generate_password_hash(password)
 
     cur.execute(
-        "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
+        "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s)",
         (user_id, username, password_hash)
     )
     conn.commit()
     conn.close()
 
     token = str(uuid.uuid4())
-    TOKENS[token] = user_id
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
+        (token, user_id)
+    )
+    conn.commit()
 
     return jsonify({
         "token": token,
@@ -92,7 +104,7 @@ def login():
     cur = conn.cursor()
 
     user = cur.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        "SELECT id, username, password_hash FROM users WHERE username = %s",
         (username,)
     ).fetchone()
 
@@ -101,8 +113,15 @@ def login():
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid username or password."}), 401
 
+    conn = get_db()
+    cur = conn.cursor()
     token = str(uuid.uuid4())
-    TOKENS[token] = user["id"]
+    cur.execute(
+        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
+        (token, user["id"])
+    )
+    conn.commit()
+    conn.close()
 
     return jsonify({
         "token": token,
@@ -112,12 +131,11 @@ def login():
         }
     })
 
-def get_db() -> sqlite3.Connection:
-    os.makedirs(DB_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
+def get_db():
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+    return psycopg.connect(database_url, row_factory=dict_row)
 
 def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
@@ -169,6 +187,17 @@ def init_db() -> None:
     conn = get_db()
     cur = conn.cursor()
 
+    cur.execute(
+    """
+    CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+      )
+      """
+    )
+    
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS members (
@@ -446,7 +475,7 @@ def seed_if_empty() -> None:
                 id, name, gender, active, archived, phone, email,
                 can_teach_kids, can_assist_kids, can_setup, can_coffee, kids_couple_group
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 volunteer_id,
@@ -496,7 +525,7 @@ def seed_if_empty() -> None:
         cur.execute(
             """
             INSERT INTO serve_records (id, date, volunteer_id, role)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), record_date.isoformat(), volunteer_id, role),
         )
@@ -549,12 +578,12 @@ def get_all_members(user_id: str, active_only: bool = False) -> List[Dict[str, A
     conn = get_db()
     if active_only:
         rows = conn.execute(
-            "SELECT * FROM members WHERE user_id = ? AND active = 1 ORDER BY name",
+            "SELECT * FROM members WHERE user_id = %s AND active = 1 ORDER BY name",
             (user_id,),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM members WHERE user_id = ? ORDER BY name",
+            "SELECT * FROM members WHERE user_id = %s ORDER BY name",
             (user_id,),
         ).fetchall()
     conn.close()
@@ -563,7 +592,7 @@ def get_all_members(user_id: str, active_only: bool = False) -> List[Dict[str, A
 def get_prayer_records(user_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM pastoral_prayer_records WHERE user_id = ? ORDER BY date DESC, gender ASC",
+        "SELECT * FROM pastoral_prayer_records WHERE user_id = %s ORDER BY date DESC, gender ASC",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -573,7 +602,7 @@ def get_prayer_records(user_id: str) -> List[Dict[str, Any]]:
 def total_prayer_mentions(user_id: str, member_id: str) -> int:
     conn = get_db()
     row = conn.execute(
-        "SELECT COUNT(*) AS count FROM pastoral_prayer_records WHERE user_id = ? AND member_id = ?",
+        "SELECT COUNT(*) AS count FROM pastoral_prayer_records WHERE user_id = %s AND member_id = %s",
         (user_id, member_id),
     ).fetchone()
     conn.close()
@@ -585,7 +614,7 @@ def last_prayed_for_date(user_id: str, member_id: str) -> Optional[date]:
     row = conn.execute(
         """
         SELECT date FROM pastoral_prayer_records
-        WHERE user_id = ? AND member_id = ?
+        WHERE user_id = %s AND member_id = %s
         ORDER BY date DESC
         LIMIT 1
         """,
@@ -657,12 +686,12 @@ def get_all_volunteers(user_id: str, include_archived: bool = True) -> List[Dict
     conn = get_db()
     if include_archived:
         rows = conn.execute(
-            "SELECT * FROM volunteers WHERE user_id = ? ORDER BY name",
+            "SELECT * FROM volunteers WHERE user_id = %s ORDER BY name",
             (user_id,),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM volunteers WHERE user_id = ? AND archived = 0 ORDER BY name",
+            "SELECT * FROM volunteers WHERE user_id = %s AND archived = 0 ORDER BY name",
             (user_id,),
         ).fetchall()
     conn.close()
@@ -675,7 +704,7 @@ def get_volunteer_map(user_id: str) -> Dict[str, Dict[str, Any]]:
 def get_serve_records(user_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM serve_records WHERE user_id = ? ORDER BY date DESC, role ASC",
+        "SELECT * FROM serve_records WHERE user_id = %s ORDER BY date DESC, role ASC",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -686,7 +715,7 @@ def get_records_for_volunteer(user_id: str, volunteer_id: str) -> List[Dict[str,
     rows = conn.execute(
         """
         SELECT * FROM serve_records
-        WHERE user_id = ? AND volunteer_id = ?
+        WHERE user_id = %s AND volunteer_id = %s
         ORDER BY date DESC
         """,
         (user_id, volunteer_id),
@@ -697,7 +726,7 @@ def get_records_for_volunteer(user_id: str, volunteer_id: str) -> List[Dict[str,
 def total_serves(user_id: str, volunteer_id: str) -> int:
     conn = get_db()
     row = conn.execute(
-        "SELECT COUNT(*) AS count FROM serve_records WHERE user_id = ? AND volunteer_id = ?",
+        "SELECT COUNT(*) AS count FROM serve_records WHERE user_id = %s AND volunteer_id = %s",
         (user_id, volunteer_id),
     ).fetchone()
     conn.close()
@@ -706,7 +735,7 @@ def total_serves(user_id: str, volunteer_id: str) -> int:
 def serves_this_month(user_id: str, volunteer_id: str, reference_date: date) -> int:
     conn = get_db()
     rows = conn.execute(
-        "SELECT date FROM serve_records WHERE user_id = ? AND volunteer_id = ?",
+        "SELECT date FROM serve_records WHERE user_id = %s AND volunteer_id = %s",
         (user_id, volunteer_id),
     ).fetchall()
     conn.close()
@@ -723,7 +752,7 @@ def last_served_date(user_id: str, volunteer_id: str) -> Optional[date]:
     row = conn.execute(
         """
         SELECT date FROM serve_records
-        WHERE user_id = ? AND volunteer_id = ?
+        WHERE user_id = %s AND volunteer_id = %s
         ORDER BY date DESC
         LIMIT 1
         """,
@@ -751,7 +780,7 @@ def served_last_sunday(user_id: str, volunteer_id: str, reference_date: date) ->
     row = conn.execute(
         """
         SELECT 1 FROM serve_records
-        WHERE user_id = ? AND volunteer_id = ? AND date = ?
+        WHERE user_id = %s AND volunteer_id = %s AND date = %s
         LIMIT 1
         """,
         (user_id, volunteer_id, target),
@@ -858,7 +887,7 @@ def get_top_candidates(user_id: str, role: str, reference_date: date, n: int = 5
 def load_schedule_by_date(user_id: str, schedule_date: str) -> Optional[Dict[str, Any]]:
     conn = get_db()
     schedule_row = conn.execute(
-        "SELECT * FROM sunday_schedules WHERE user_id = ? AND date = ?",
+        "SELECT * FROM sunday_schedules WHERE user_id = %s AND date = %s",
         (user_id, schedule_date),
     ).fetchone()
 
@@ -870,7 +899,7 @@ def load_schedule_by_date(user_id: str, schedule_date: str) -> Optional[Dict[str
         """
         SELECT assignment_group, volunteer_id
         FROM sunday_schedule_assignments
-        WHERE schedule_id = ?
+        WHERE schedule_id = %s
         ORDER BY assignment_group, id
         """,
         (schedule_row["id"],),
@@ -1047,7 +1076,7 @@ def create_member() -> Any:
     conn.execute(
         """
         INSERT INTO members (id, user_id, name, gender, active, member_status, date_added)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (member_id, user_id, name, gender, active, member_status, date_added),
     )
@@ -1083,12 +1112,12 @@ def create_pastoral_prayer_records() -> Any:
     conn = get_db()
 
     male_row = conn.execute(
-        "SELECT * FROM members WHERE id = ? AND user_id = ?",
+        "SELECT * FROM members WHERE id = %s AND user_id = %s",
         (male_member_id, user_id),
     ).fetchone()
 
     female_row = conn.execute(
-        "SELECT * FROM members WHERE id = ? AND user_id = ?",
+        "SELECT * FROM members WHERE id = %s AND user_id = %s",
         (female_member_id, user_id),
     ).fetchone()
 
@@ -1103,7 +1132,7 @@ def create_pastoral_prayer_records() -> Any:
     conn.execute(
         """
         INSERT INTO pastoral_prayer_records (id, user_id, date, member_id, gender, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
         (str(uuid.uuid4()), user_id, record_date, male_member_id, "Male", notes),
     )
@@ -1111,7 +1140,7 @@ def create_pastoral_prayer_records() -> Any:
     conn.execute(
         """
         INSERT INTO pastoral_prayer_records (id, user_id, date, member_id, gender, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
         (str(uuid.uuid4()), user_id, record_date, female_member_id, "Female", notes),
     )
@@ -1191,7 +1220,7 @@ def create_volunteer():
                 id, user_id, name, gender, active, archived, phone, email,
                 can_teach_kids, can_assist_kids, can_setup, can_coffee, kids_couple_group
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 volunteer_id,
@@ -1229,7 +1258,7 @@ def update_volunteer(volunteer_id: str) -> Any:
 
     conn = get_db()
     existing = conn.execute(
-        "SELECT id FROM volunteers WHERE id = ?",
+        "SELECT id FROM volunteers WHERE id = %s",
         (volunteer_id,),
     ).fetchone()
 
@@ -1243,11 +1272,11 @@ def update_volunteer(volunteer_id: str) -> Any:
     conn.execute(
         """
         UPDATE volunteers
-        SET name = ?, gender = ?, active = ?, archived = ?,
-            phone = ?, email = ?,
-            can_teach_kids = ?, can_assist_kids = ?, can_setup = ?, can_coffee = ?,
-            kids_couple_group = ?
-        WHERE id = ?
+        SET name = %s, gender = %s, active = %s, archived = %s,
+            phone = %s, email = %s,
+            can_teach_kids = %s, can_assist_kids = %s, can_setup = %s, can_coffee = %s,
+            kids_couple_group = %s
+        WHERE id = %s
         """,
         (
             name,
@@ -1276,7 +1305,7 @@ def delete_volunteer(volunteer_id: str) -> Any:
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM volunteers WHERE id = ?",
+        "SELECT id FROM volunteers WHERE id = %s",
         (volunteer_id,),
     ).fetchone()
 
@@ -1288,7 +1317,7 @@ def delete_volunteer(volunteer_id: str) -> Any:
         """
         UPDATE volunteers
         SET active = 0, archived = 1
-        WHERE id = ?
+        WHERE id = %s
         """,
         (volunteer_id,),
     )
@@ -1306,7 +1335,7 @@ def list_serve_records() -> Any:
 
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM serve_records WHERE user_id = ? ORDER BY date DESC, role ASC",
+        "SELECT * FROM serve_records WHERE user_id = %s ORDER BY date DESC, role ASC",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -1334,7 +1363,7 @@ def create_serve_record() -> Any:
 
     conn = get_db()
     volunteer_row = conn.execute(
-        "SELECT * FROM volunteers WHERE id = ? AND user_id = ?",
+        "SELECT * FROM volunteers WHERE id = %s AND user_id = %s",
         (volunteer_id, user_id),
     ).fetchone()
 
@@ -1357,7 +1386,7 @@ def create_serve_record() -> Any:
     conn.execute(
         """
         INSERT INTO serve_records (id, user_id, date, volunteer_id, role)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
         """,
         (record_id, user_id, record_date, volunteer_id, role),
     )
@@ -1379,7 +1408,7 @@ def delete_serve_record(record_id: str) -> Any:
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM serve_records WHERE id = ?",
+        "SELECT id FROM serve_records WHERE id = %s",
         (record_id,),
     ).fetchone()
 
@@ -1387,7 +1416,7 @@ def delete_serve_record(record_id: str) -> Any:
         conn.close()
         return jsonify({"error": "Serve record not found."}), 404
 
-    conn.execute("DELETE FROM serve_records WHERE id = ?", (record_id,))
+    conn.execute("DELETE FROM serve_records WHERE id = %s", (record_id,))
     conn.commit()
     conn.close()
 
@@ -1454,7 +1483,7 @@ def save_schedule(schedule_date: str) -> Any:
     cur = conn.cursor()
 
     existing = cur.execute(
-        "SELECT id FROM sunday_schedules WHERE user_id = ? AND date = ?",
+        "SELECT id FROM sunday_schedules WHERE user_id = %s AND date = %s",
         (user_id, schedule_date),
     ).fetchone()
 
@@ -1464,20 +1493,20 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             UPDATE sunday_schedules
-            SET kids_teacher = ?, coffee = ?
-            WHERE id = ?
+            SET kids_teacher = %s, coffee = %s
+            WHERE id = %s
             """,
             (schedule["kidsTeacher"], schedule["coffee"], schedule_id),
         )
         cur.execute(
-            "DELETE FROM sunday_schedule_assignments WHERE schedule_id = ?",
+            "DELETE FROM sunday_schedule_assignments WHERE schedule_id = %s",
             (schedule_id,),
         )
     else:
         cur.execute(
             """
             INSERT INTO sunday_schedules (id, user_id, date, kids_teacher, coffee)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (schedule_id, user_id, schedule_date, schedule["kidsTeacher"], schedule["coffee"]),
         )
@@ -1486,7 +1515,7 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             INSERT INTO sunday_schedule_assignments (id, schedule_id, assignment_group, volunteer_id)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), schedule_id, "kidsAssistants", volunteer_id),
         )
@@ -1495,13 +1524,13 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             INSERT INTO sunday_schedule_assignments (id, schedule_id, assignment_group, volunteer_id)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), schedule_id, "setup", volunteer_id),
         )
 
     cur.execute(
-        "DELETE FROM serve_records WHERE user_id = ? AND date = ?",
+        "DELETE FROM serve_records WHERE user_id = %s AND date = %s",
         (user_id, schedule_date),
     )
 
@@ -1509,7 +1538,7 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             INSERT INTO serve_records (id, user_id, date, volunteer_id, role)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), user_id, schedule_date, schedule["kidsTeacher"], ROLE_KIDS_TEACHER),
         )
@@ -1518,7 +1547,7 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             INSERT INTO serve_records (id, user_id, date, volunteer_id, role)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), user_id, schedule_date, volunteer_id, ROLE_KIDS_ASSISTANT),
         )
@@ -1527,7 +1556,7 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             INSERT INTO serve_records (id, user_id, date, volunteer_id, role)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), user_id, schedule_date, volunteer_id, ROLE_SETUP),
         )
@@ -1536,7 +1565,7 @@ def save_schedule(schedule_date: str) -> Any:
         cur.execute(
             """
             INSERT INTO serve_records (id, user_id, date, volunteer_id, role)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), user_id, schedule_date, schedule["coffee"], ROLE_COFFEE),
         )
@@ -1618,12 +1647,12 @@ def get_all_hymns(user_id: str, active_only: bool = False) -> List[Dict[str, Any
     conn = get_db()
     if active_only:
         rows = conn.execute(
-            "SELECT * FROM hymns WHERE user_id = ? AND active = 1 ORDER BY title",
+            "SELECT * FROM hymns WHERE user_id = %s AND active = 1 ORDER BY title",
             (user_id,),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM hymns WHERE user_id = ? ORDER BY title",
+            "SELECT * FROM hymns WHERE user_id = %s ORDER BY title",
             (user_id,),
         ).fetchall()
     conn.close()
@@ -1633,7 +1662,7 @@ def get_all_hymns(user_id: str, active_only: bool = False) -> List[Dict[str, Any
 def get_hymn_usage_records(user_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM hymn_usage_records WHERE user_id = ? ORDER BY date DESC",
+        "SELECT * FROM hymn_usage_records WHERE user_id = %s ORDER BY date DESC",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -1643,7 +1672,7 @@ def get_hymn_usage_records(user_id: str) -> List[Dict[str, Any]]:
 def total_times_sung(user_id: str, hymn_id: str) -> int:
     conn = get_db()
     row = conn.execute(
-        "SELECT COUNT(*) AS count FROM hymn_usage_records WHERE user_id = ? AND hymn_id = ?",
+        "SELECT COUNT(*) AS count FROM hymn_usage_records WHERE user_id = %s AND hymn_id = %s",
         (user_id, hymn_id),
     ).fetchone()
     conn.close()
@@ -1655,7 +1684,7 @@ def last_sung_date(user_id: str, hymn_id: str) -> Optional[date]:
     row = conn.execute(
         """
         SELECT date FROM hymn_usage_records
-        WHERE user_id = ? AND hymn_id = ?
+        WHERE user_id = %s AND hymn_id = %s
         ORDER BY date DESC
         LIMIT 1
         """,
@@ -1707,7 +1736,7 @@ def create_hymn() -> Any:
     conn.execute(
         """
         INSERT INTO hymns (id, user_id, title, alternate_title, hymn_number, notes, active)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (hymn_id, user_id, title, alternate_title, hymn_number, notes, active),
     )
@@ -1743,7 +1772,7 @@ def create_hymn_usage_record() -> Any:
 
     conn = get_db()
     hymn_row = conn.execute(
-        "SELECT id FROM hymns WHERE id = ? AND user_id = ?",
+        "SELECT id FROM hymns WHERE id = %s AND user_id = %s",
         (hymn_id, user_id),
     ).fetchone()
 
@@ -1755,7 +1784,7 @@ def create_hymn_usage_record() -> Any:
     conn.execute(
         """
         INSERT INTO hymn_usage_records (id, user_id, date, hymn_id, service_type, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
         (record_id, user_id, record_date, hymn_id, service_type, notes),
     )
@@ -1773,7 +1802,7 @@ def delete_pastoral_prayer_record(record_id: str) -> Any:
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM pastoral_prayer_records WHERE id = ? AND user_id = ?",
+        "SELECT id FROM pastoral_prayer_records WHERE id = %s AND user_id = %s",
         (record_id, user_id),
     ).fetchone()
 
@@ -1782,7 +1811,7 @@ def delete_pastoral_prayer_record(record_id: str) -> Any:
         return jsonify({"error": "Pastoral prayer record not found."}), 404
 
     conn.execute(
-        "DELETE FROM pastoral_prayer_records WHERE id = ? AND user_id = ?",
+        "DELETE FROM pastoral_prayer_records WHERE id = %s AND user_id = %s",
         (record_id, user_id),
     )
     conn.commit()
@@ -1799,7 +1828,7 @@ def delete_hymn(hymn_id: str) -> Any:
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM hymns WHERE id = ? AND user_id = ?",
+        "SELECT id FROM hymns WHERE id = %s AND user_id = %s",
         (hymn_id, user_id),
     ).fetchone()
 
@@ -1808,11 +1837,11 @@ def delete_hymn(hymn_id: str) -> Any:
         return jsonify({"error": "Hymn not found."}), 404
 
     conn.execute(
-        "DELETE FROM hymn_usage_records WHERE hymn_id = ? AND user_id = ?",
+        "DELETE FROM hymn_usage_records WHERE hymn_id = %s AND user_id = %s",
         (hymn_id, user_id),
     )
     conn.execute(
-        "DELETE FROM hymns WHERE id = ? AND user_id = ?",
+        "DELETE FROM hymns WHERE id = %s AND user_id = %s",
         (hymn_id, user_id),
     )
     conn.commit()
@@ -1829,7 +1858,7 @@ def delete_hymn_usage_record(record_id: str) -> Any:
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM hymn_usage_records WHERE id = ? AND user_id = ?",
+        "SELECT id FROM hymn_usage_records WHERE id = %s AND user_id = %s",
         (record_id, user_id),
     ).fetchone()
 
@@ -1838,7 +1867,7 @@ def delete_hymn_usage_record(record_id: str) -> Any:
         return jsonify({"error": "Hymn usage record not found."}), 404
 
     conn.execute(
-        "DELETE FROM hymn_usage_records WHERE id = ? AND user_id = ?",
+        "DELETE FROM hymn_usage_records WHERE id = %s AND user_id = %s",
         (record_id, user_id),
     )
     conn.commit()
@@ -1855,7 +1884,7 @@ def delete_member(member_id: str) -> Any:
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM members WHERE id = ? AND user_id = ?",
+        "SELECT id FROM members WHERE id = %s AND user_id = %s",
         (member_id, user_id),
     ).fetchone()
 
@@ -1864,11 +1893,11 @@ def delete_member(member_id: str) -> Any:
         return jsonify({"error": "Member not found."}), 404
 
     conn.execute(
-        "DELETE FROM pastoral_prayer_records WHERE member_id = ? AND user_id = ?",
+        "DELETE FROM pastoral_prayer_records WHERE member_id = %s AND user_id = %s",
         (member_id, user_id),
     )
     conn.execute(
-        "DELETE FROM members WHERE id = ? AND user_id = ?",
+        "DELETE FROM members WHERE id = %s AND user_id = %s",
         (member_id, user_id),
     )
 
