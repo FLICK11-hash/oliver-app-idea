@@ -4,7 +4,6 @@ from psycopg.rows import dict_row
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
-import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -308,22 +307,22 @@ def init_db() -> None:
         """
     )
 
-    try:
-        cur.execute("ALTER TABLE volunteers ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-    except Exception:
-        pass
-    try:
-        cur.execute("ALTER TABLE volunteers ADD COLUMN phone TEXT")
-    except Exception:
-        pass
-    try:
-        cur.execute("ALTER TABLE volunteers ADD COLUMN email TEXT")
-    except Exception:
-        pass
-    try:
-        cur.execute("ALTER TABLE volunteers ADD COLUMN user_id TEXT")
-    except Exception:
-        pass
+    # try:
+    #     cur.execute("ALTER TABLE volunteers ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+    # except Exception:
+    #     pass
+    # try:
+    #     cur.execute("ALTER TABLE volunteers ADD COLUMN phone TEXT")
+    # except Exception:
+    #     pass
+    # try:
+    #     cur.execute("ALTER TABLE volunteers ADD COLUMN email TEXT")
+    # except Exception:
+    #     pass
+    # try:
+    #     cur.execute("ALTER TABLE volunteers ADD COLUMN user_id TEXT")
+    # except Exception:
+    #     pass
 
     cur.execute(
         """
@@ -339,10 +338,10 @@ def init_db() -> None:
         """
     )
 
-    try:
-        cur.execute("ALTER TABLE serve_records ADD COLUMN user_id TEXT")
-    except Exception:
-        pass
+    # try:
+    #     cur.execute("ALTER TABLE serve_records ADD COLUMN user_id TEXT")
+    # except Exception:
+    #     pass
 
     cur.execute(
         """
@@ -360,10 +359,10 @@ def init_db() -> None:
         """
     )
 
-    try:
-        cur.execute("ALTER TABLE sunday_schedules ADD COLUMN user_id TEXT")
-    except Exception:
-        pass
+    # try:
+    #     cur.execute("ALTER TABLE sunday_schedules ADD COLUMN user_id TEXT")
+    # except Exception:
+    #     pass
 
     cur.execute(
         """
@@ -1315,7 +1314,7 @@ def update_volunteer(volunteer_id: str) -> Any:
     conn.commit()
     conn.close()
 
-    volunteer = next(v for v in get_all_volunteers(include_archived=True) if v["id"] == volunteer_id)
+    volunteer = next(v for v in get_all_volunteers(user_id, include_archived=True) if v["id"] == volunteer_id)
     return jsonify(volunteer)
 
 
