@@ -1,18 +1,11 @@
 import { useEffect, useState } from "react";
-import type { Candidate, DashboardData, Role } from "../types";
+import type { DashboardData } from "../types";
 
 type Props = {
   token: string;
 };
 
 const API_BASE = "https://oliver-app-idea-2.onrender.com/api";
-
-const roleLabels: Record<Role, string> = {
-  KIDS_TEACHER: "Kids Teacher",
-  KIDS_ASSISTANT: "Kids Assistant",
-  SETUP: "Setup",
-  COFFEE: "Coffee",
-};
 
 export default function DashboardPage({ token }: Props) {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -39,20 +32,6 @@ export default function DashboardPage({ token }: Props) {
       })
       .catch((err) => setError(err.message || "Failed to load dashboard."));
   }, [token]);
-
-  const renderCandidates = (candidates: Candidate[]) => (
-    <div className="candidate-list">
-      {candidates.map((candidate) => (
-        <div key={candidate.volunteer.id} className="card compact-card">
-          <strong>{candidate.volunteer.name}</strong>
-          <div>Priority: {candidate.priority}</div>
-          <div>Total serves: {candidate.stats.totalServes}</div>
-          <div>This month: {candidate.stats.servesThisMonth}</div>
-          <div>Served last Sunday: {candidate.stats.servedLastSunday ? "Yes" : "No"}</div>
-        </div>
-      ))}
-    </div>
-  );
 
   if (error) {
     return <div className="card error-box">{error}</div>;
