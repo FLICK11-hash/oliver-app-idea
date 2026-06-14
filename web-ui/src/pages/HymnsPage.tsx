@@ -48,7 +48,7 @@ export default function HymnsPage({ token }: Props) {
       headers: { Authorization: `Bearer ${token}` },
     }).then(async (res) => setHymns(await res.json()));
 
-    fetch(`${API_BASE}/hymn-usage-records`, {
+    fetch(`${API_BASE}/hymn-usage-records?limit=100`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(async (res) => setUsage(await res.json()));
   }
