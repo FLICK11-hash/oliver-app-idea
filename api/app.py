@@ -138,7 +138,6 @@ def row_to_hymn_usage_record(row: Dict[str, Any]) -> Dict[str, Any]:
         "notes": row["notes"],
     }
 
-
 def init_db() -> None:
     conn = get_db()
     cur = conn.cursor()
@@ -288,6 +287,59 @@ def init_db() -> None:
         """
     )
 
+    # Indexes for performance
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volunteers_user ON volunteers(user_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_members_user ON members(user_id)"
+    )
+
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_serve_records_user_date
+        ON serve_records(user_id, date DESC)
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_serve_records_user_volunteer
+        ON serve_records(user_id, volunteer_id)
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_prayer_records_user_member
+        ON pastoral_prayer_records(user_id, member_id)
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_hymn_usage_user_date
+        ON hymn_usage_records(user_id, date DESC)
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_sunday_schedules_user_date
+        ON sunday_schedules(user_id, date DESC)
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_schedule_assignments_schedule
+        ON sunday_schedule_assignments(schedule_id)
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -395,11 +447,16 @@ def get_all_members(user_id: str, active_only: bool = False) -> List[Dict[str, A
     return [row_to_member(row) for row in rows]
 
 
-def get_prayer_records(user_id: str) -> List[Dict[str, Any]]:
+def get_prayer_records(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM pastoral_prayer_records WHERE user_id = %s ORDER BY date DESC, gender ASC",
-        (user_id,),
+        """
+        SELECT * FROM pastoral_prayer_records
+        WHERE user_id = %s
+        ORDER BY date DESC, gender ASC
+        LIMIT %s
+        """,
+        (user_id, limit),
     ).fetchall()
     conn.close()
     return [row_to_pastoral_prayer_record(row) for row in rows]
@@ -511,11 +568,16 @@ def get_volunteer_map(user_id: str) -> Dict[str, Dict[str, Any]]:
     return {v["id"]: v for v in volunteers}
 
 
-def get_serve_records(user_id: str) -> List[Dict[str, Any]]:
+def get_serve_records(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM serve_records WHERE user_id = %s ORDER BY date DESC, role ASC",
-        (user_id,),
+        """
+        SELECT * FROM serve_records
+        WHERE user_id = %s
+        ORDER BY date DESC, role ASC
+        LIMIT %s
+        """,
+        (user_id, limit),
     ).fetchall()
     conn.close()
     return [row_to_serve_record(row) for row in rows]
@@ -850,20 +912,34 @@ def validate_schedule(user_id: str, schedule: Dict[str, Any]) -> Dict[str, List[
 
 
 def dashboard_stats(user_id: str, reference_date: date) -> Dict[str, Any]:
-    volunteers = get_all_volunteers(user_id, include_archived=True)
-    active_count = len([v for v in volunteers if v["active"] and not v["archived"]])
-    records = get_serve_records(user_id)
+    conn = get_db()
+
+    total_volunteers = conn.execute(
+        "SELECT COUNT(*) AS count FROM volunteers WHERE user_id = %s",
+        (user_id,),
+    ).fetchone()["count"]
+
+    active_volunteers = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM volunteers
+        WHERE user_id = %s AND active = 1 AND archived = 0
+        """,
+        (user_id,),
+    ).fetchone()["count"]
+
+    total_serve_records = conn.execute(
+        "SELECT COUNT(*) AS count FROM serve_records WHERE user_id = %s",
+        (user_id,),
+    ).fetchone()["count"]
+
+    conn.close()
 
     return {
-        "totalVolunteers": len(volunteers),
-        "activeVolunteers": active_count,
-        "totalServeRecords": len(records),
-        "topCandidates": {
-            ROLE_KIDS_TEACHER: get_top_candidates(user_id, ROLE_KIDS_TEACHER, reference_date, 5),
-            ROLE_KIDS_ASSISTANT: get_top_candidates(user_id, ROLE_KIDS_ASSISTANT, reference_date, 5),
-            ROLE_SETUP: get_top_candidates(user_id, ROLE_SETUP, reference_date, 5),
-            ROLE_COFFEE: get_top_candidates(user_id, ROLE_COFFEE, reference_date, 5),
-        },
+        "totalVolunteers": int(total_volunteers),
+        "activeVolunteers": int(active_volunteers),
+        "totalServeRecords": int(total_serve_records),
+        "topCandidates": {},
     }
 
 
@@ -916,7 +992,8 @@ def list_pastoral_prayer_records() -> Any:
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
 
-    return jsonify(get_prayer_records(user_id))
+    limit = int(request.args.get("limit", "100"))
+    return jsonify(get_prayer_records(user_id, limit))
 
 
 @app.route("/api/pastoral-prayer-records", methods=["POST"])
@@ -1172,14 +1249,8 @@ def list_serve_records() -> Any:
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
 
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM serve_records WHERE user_id = %s ORDER BY date DESC, role ASC",
-        (user_id,),
-    ).fetchall()
-    conn.close()
-
-    return jsonify([row_to_serve_record(row) for row in rows])
+    limit = int(request.args.get("limit", "100"))
+    return jsonify(get_serve_records(user_id, limit))
 
 
 @app.route("/api/serve-records", methods=["POST"])
@@ -1511,11 +1582,16 @@ def get_all_hymns(user_id: str, active_only: bool = False) -> List[Dict[str, Any
     return [row_to_hymn(row) for row in rows]
 
 
-def get_hymn_usage_records(user_id: str) -> List[Dict[str, Any]]:
+def get_hymn_usage_records(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM hymn_usage_records WHERE user_id = %s ORDER BY date DESC",
-        (user_id,),
+        """
+        SELECT * FROM hymn_usage_records
+        WHERE user_id = %s
+        ORDER BY date DESC
+        LIMIT %s
+        """,
+        (user_id, limit),
     ).fetchall()
     conn.close()
     return [row_to_hymn_usage_record(row) for row in rows]
@@ -1605,7 +1681,8 @@ def list_hymn_usage_records() -> Any:
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
 
-    return jsonify(get_hymn_usage_records(user_id))
+    limit = int(request.args.get("limit", "100"))
+    return jsonify(get_hymn_usage_records(user_id, limit))
 
 
 @app.route("/api/hymn-usage-records", methods=["POST"])
