@@ -78,13 +78,6 @@ export default function DashboardPage({ token }: Props) {
           <div className="big-number">{data.totalServeRecords}</div>
         </div>
       </div>
-
-      {(Object.keys(data.topCandidates) as Role[]).map((role) => (
-        <section key={role} className="card">
-          <h2>{roleLabels[role]} Suggestions</h2>
-          {renderCandidates(data.topCandidates[role])}
-        </section>
-      ))}
     </div>
   );
 }
