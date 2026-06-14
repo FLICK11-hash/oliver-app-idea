@@ -62,7 +62,7 @@ export default function PastoralPrayerPage({ token }: Props) {
       headers: { Authorization: `Bearer ${token}` },
     }).then(async (res) => setMembers(await res.json()));
 
-    fetch(`${API_BASE}/pastoral-prayer-records`, {
+    fetch(`${API_BASE}/pastoral-prayer-records?limit=100`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(async (res) => setRecords(await res.json()));
 
