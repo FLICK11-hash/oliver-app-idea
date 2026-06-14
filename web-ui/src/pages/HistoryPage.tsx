@@ -32,7 +32,7 @@ export default function HistoryPage({ token }: Props) {
       .then((res) => res.json())
       .then(setVolunteers);
 
-    fetch(`${API_BASE}/serve-records`, {
+    fetch(`${API_BASE}/serve-records?limit=100`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -48,7 +48,7 @@ export default function HistoryPage({ token }: Props) {
   function submitRecord(e: FormEvent) {
     e.preventDefault();
 
-    fetch(`${API_BASE}/serve-records`, {
+    fetch(`${API_BASE}/serve-records?limit=100`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
